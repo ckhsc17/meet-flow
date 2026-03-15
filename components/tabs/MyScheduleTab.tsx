@@ -26,8 +26,8 @@ export function MyScheduleTab() {
         <CardContent className="pt-6">
           <Legend
             items={[
-              { color: "bg-primary", label: "空閒" },
-              { color: "bg-muted border border-border", label: "忙碌" },
+              { color: "bg-muted border border-border", label: "空閒" },
+              { color: "bg-primary", label: "忙碌" },
             ]}
           />
           <ScheduleGrid

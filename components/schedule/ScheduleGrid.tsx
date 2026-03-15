@@ -37,8 +37,8 @@ export function ScheduleGrid({
                 const cellClass = active
                   ? emerald
                     ? "bg-emerald-400 border-emerald-400"
-                    : "bg-primary border-primary"
-                  : "bg-muted border-border hover:bg-muted/60";
+                    : "bg-muted border-border hover:bg-muted/60"
+                  : "bg-primary border-primary";
                 return (
                   <td key={d} className="p-0.5">
                     <div

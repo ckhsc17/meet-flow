@@ -2,11 +2,12 @@
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { CalendarCheck, Users, User, Calendar, CalendarDays, Bell } from "lucide-react";
+import { CalendarCheck, Users, User, Calendar, CalendarDays, Bell, Settings } from "lucide-react";
 import { MeetFlowProvider, useMeetFlow } from "@/context/MeetFlowContext";
 import { MembersTab } from "@/components/tabs/MembersTab";
 import { MyScheduleTab } from "@/components/tabs/MyScheduleTab";
 import { ViewMemberTab } from "@/components/tabs/ViewMemberTab";
+import { SettingsTab } from "@/components/tabs/SettingsTab";
 import { CommonSlotsTab } from "@/components/tabs/CommonSlotsTab";
 import { NotificationsTab } from "@/components/tabs/NotificationsTab";
 import { MeetingsTab } from "@/components/tabs/MeetingsTab";
@@ -29,6 +30,10 @@ function MeetFlowTabs() {
         <TabsTrigger value="view-member" className="gap-1.5 text-sm">
           <Calendar className="w-3.5 h-3.5" />
           查看成員
+        </TabsTrigger>
+        <TabsTrigger value="settings" className="gap-1.5 text-sm">
+          <Settings className="w-3.5 h-3.5" />
+          設定與偏好
         </TabsTrigger>
         <TabsTrigger value="common" className="gap-1.5 text-sm">
           <CalendarCheck className="w-3.5 h-3.5" />
@@ -60,6 +65,9 @@ function MeetFlowTabs() {
       </TabsContent>
       <TabsContent value="view-member">
         <ViewMemberTab />
+      </TabsContent>
+      <TabsContent value="settings">
+        <SettingsTab />
       </TabsContent>
       <TabsContent value="common">
         <CommonSlotsTab />

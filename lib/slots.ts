@@ -19,3 +19,9 @@ export function isSlotFreeForMember(member: Member, s: TimeSlot): boolean {
 export function getAllSlots(): TimeSlot[] {
   return DAYS.flatMap((_, d) => HOURS.map((h) => slot(d, h)));
 }
+
+/** Generate random free slots for a member (each slot included with probability ~0.5). */
+export function generateRandomAvailability(): TimeSlot[] {
+  const all = getAllSlots();
+  return all.filter(() => Math.random() < 0.65);
+}

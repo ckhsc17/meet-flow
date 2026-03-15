@@ -11,19 +11,32 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import type { Meeting, Member, MeetingWeight } from "@/lib/types";
 import { useMeetFlow } from "@/context/MeetFlowContext";
-import { getCommonSlots } from "@/lib/slots";
+import { getTopRecommendedSlots } from "@/lib/meetings";
 import { DAYS } from "@/lib/constants";
-import { Plus } from "lucide-react";
+import { Plus, CalendarClock } from "lucide-react";
 
 export function MeetingsTab() {
-  const { members, meetings, addMeeting } = useMeetFlow();
+  const { members, meetings, addMeeting, rescheduleMeeting } = useMeetFlow();
   const memberMap = new Map(members.map((m) => [m.id, m]));
-  const commonSlots = getCommonSlots(members);
   const [open, setOpen] = useState(false);
+  const [rescheduleMeetingId, setRescheduleMeetingId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedSlot, setSelectedSlot] = useState("");
   const [title, setTitle] = useState("");
+  const [weight, setWeight] = useState<MeetingWeight>("high");
+
+  const createSlotOptions =
+    selectedIds.length > 0
+      ? getTopRecommendedSlots(
+          selectedIds,
+          members,
+          meetings,
+          weight,
+          { top: 50 }
+        )
+      : [];
 
   function toggleParticipant(id: string) {
     setSelectedIds((prev) =>
@@ -33,10 +46,11 @@ export function MeetingsTab() {
 
   function handleCreate() {
     if (selectedIds.length === 0 || !selectedSlot) return;
-    addMeeting(selectedIds, selectedSlot, title.trim() || undefined);
+    addMeeting(selectedIds, selectedSlot, title.trim() || undefined, weight);
     setSelectedIds([]);
     setSelectedSlot("");
     setTitle("");
+    setWeight("high");
     setOpen(false);
   }
 
@@ -75,17 +89,36 @@ export function MeetingsTab() {
                   </Button>
                 ))}
               </div>
-              <p className="text-xs text-muted-foreground">時段（共同空閒）</p>
+              <p className="text-xs text-muted-foreground">會議權重</p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={weight === "high" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setWeight("high")}
+                >
+                  需報告（高優先）
+                </Button>
+                <Button
+                  type="button"
+                  variant={weight === "low" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setWeight("low")}
+                >
+                  僅需聆聽（低優先）
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">時段（依權重與深度工作區篩選，依 batching 排序）</p>
               <select
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={selectedSlot}
                 onChange={(e) => setSelectedSlot(e.target.value)}
               >
                 <option value="">請選擇</option>
-                {commonSlots.map((s) => {
-                  const [d, h] = s.split("-").map(Number);
+                {createSlotOptions.map((r) => {
+                  const [d, h] = r.slot.split("-").map(Number);
                   return (
-                    <option key={s} value={s}>
+                    <option key={r.slot} value={r.slot}>
                       {DAYS[d]} {h}:00–{h + 1}:00
                     </option>
                   );
@@ -120,19 +153,117 @@ export function MeetingsTab() {
               .join("、");
             return (
               <Card key={m.id}>
-                <CardContent className="p-4">
-                  <p className="font-medium text-sm">
-                    {m.title ?? `與 ${participantNames} 的會議`}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {DAYS[d]} {h}:00–{h + 1}:00 · {participantNames}
-                  </p>
+                <CardContent className="p-4 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-sm">
+                      {m.title ?? `與 ${participantNames} 的會議`}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {DAYS[d]} {h}:00–{h + 1}:00 · {participantNames}
+                      {m.weight === "low" ? " · 僅聆聽" : " · 需報告"}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 shrink-0"
+                    onClick={() => setRescheduleMeetingId(m.id)}
+                  >
+                    <CalendarClock className="w-3.5 h-3.5" />
+                    重新排程
+                  </Button>
                 </CardContent>
               </Card>
             );
           })}
         </div>
       )}
+
+      <RescheduleDialog
+        meeting={meetings.find((m) => m.id === rescheduleMeetingId) ?? null}
+        members={members}
+        meetings={meetings}
+        open={rescheduleMeetingId != null}
+        onClose={() => setRescheduleMeetingId(null)}
+        onReschedule={(newSlot) => {
+          if (rescheduleMeetingId) {
+            rescheduleMeeting(rescheduleMeetingId, newSlot);
+            setRescheduleMeetingId(null);
+          }
+        }}
+      />
     </>
+  );
+}
+
+function RescheduleDialog({
+  meeting,
+  members,
+  meetings,
+  open,
+  onClose,
+  onReschedule,
+}: {
+  meeting: Meeting | null;
+  members: Member[];
+  meetings: Meeting[];
+  open: boolean;
+  onClose: () => void;
+  onReschedule: (newSlot: string) => void;
+}) {
+  const recommendations =
+    meeting && open
+      ? getTopRecommendedSlots(
+          meeting.participantIds,
+          members,
+          meetings,
+          meeting.weight,
+          { top: 3 }
+        )
+      : [];
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>重新排程 · 推薦時段</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          前 3 個最優推薦時段（參與者皆空閒，且依權重過濾深度工作區、依 batching 排序）
+        </p>
+        {recommendations.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">
+            目前無可推薦時段
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {recommendations.map((r) => {
+              const [d, h] = r.slot.split("-").map(Number);
+              return (
+                <div
+                  key={r.slot}
+                  className="flex items-center justify-between gap-3 rounded-lg border p-3"
+                >
+                  <div>
+                    <p className="font-medium text-sm">
+                      {DAYS[d]} {h}:00–{h + 1}:00
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {r.reason}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => onReschedule(r.slot)}
+                  >
+                    選此時段
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

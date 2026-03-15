@@ -8,58 +8,45 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Member, Meeting, Notification } from "@/lib/types";
+import type { Member, Meeting, MeetingWeight, Notification } from "@/lib/types";
 import { COLORS, slot } from "@/lib/constants";
+import { getCommonSlots, generateRandomAvailability } from "@/lib/slots";
 import { getMeetingsWithConflict, findBestRescheduleSlot, applyReschedule } from "@/lib/meetings";
 import { createRescheduleNotification } from "@/lib/notifications";
 
-// ─── Seed data ───────────────────────────────────────────────────────────────
+// ─── Seed data (random availability for 3 members) ──────────────────────────
 
-const INITIAL_MEMBERS: Member[] = [
-  {
-    id: "me",
-    name: "我",
-    color: "bg-blue-500",
-    availability: [
-      slot(0, 9), slot(0, 10), slot(0, 11),
-      slot(0, 14), slot(0, 15), slot(0, 16),
-      slot(2, 9), slot(2, 10), slot(2, 11),
-      slot(3, 14), slot(3, 15), slot(3, 16),
-      slot(4, 9), slot(4, 10),
-    ],
-  },
-  {
-    id: "xiao-liang",
-    name: "小梁",
-    color: "bg-green-500",
-    availability: [
-      slot(0, 9), slot(0, 10), slot(0, 11),
-      slot(2, 9), slot(2, 10), slot(2, 11),
-      slot(2, 14), slot(2, 15), slot(2, 16),
-      slot(4, 9), slot(4, 10),
-    ],
-  },
-  {
-    id: "lu-lu",
-    name: "盧盧",
-    color: "bg-purple-500",
-    availability: [
-      slot(1, 10), slot(1, 11), slot(1, 12),
-      slot(2, 9), slot(2, 10), slot(2, 11),
-      slot(3, 14), slot(3, 15),
-    ],
-  },
-];
+function getInitialMembers(): Member[] {
+  const seedIds = ["me", "xiao-liang", "lu-lu"] as const;
+  const names = { me: "我", "xiao-liang": "小梁", "lu-lu": "盧盧" } as const;
+  const seedColors = ["bg-blue-500", "bg-green-500", "bg-purple-500"] as const;
+  return seedIds.map((id, i) => ({
+    id,
+    name: names[id],
+    color: seedColors[i],
+    availability: generateRandomAvailability(),
+    deepWorkSlots: [],
+  }));
+}
 
-const INITIAL_MEETINGS: Meeting[] = [
-  {
-    id: "meeting-1",
-    title: "團隊同步",
-    participantIds: ["me", "xiao-liang", "lu-lu"],
-    slot: "2-9",
-    createdAt: Date.now(),
-  },
-];
+function getInitialState(): MeetFlowState {
+  const members = getInitialMembers();
+  const commonSlots = getCommonSlots(members);
+  const meetings: Meeting[] =
+    commonSlots.length > 0
+      ? [
+          {
+            id: "meeting-1",
+            title: "團隊同步",
+            participantIds: ["me", "xiao-liang", "lu-lu"],
+            slot: commonSlots[0],
+            createdAt: Date.now(),
+            weight: "high",
+          },
+        ]
+      : [];
+  return { members, meetings, notifications: [] };
+}
 
 // ─── Context type ────────────────────────────────────────────────────────────
 
@@ -68,8 +55,10 @@ type MeetFlowContextValue = {
   meetings: Meeting[];
   notifications: Notification[];
   updateMemberAvailability: (memberId: string, day: number, hour: number) => void;
+  updateMemberDeepWork: (memberId: string, day: number, hour: number) => void;
   addMember: (name: string) => void;
-  addMeeting: (participantIds: string[], slot: string, title?: string) => void;
+  addMeeting: (participantIds: string[], slot: string, title?: string, weight?: MeetingWeight) => void;
+  rescheduleMeeting: (meetingId: string, newSlot: string) => void;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
 };
@@ -82,16 +71,10 @@ type MeetFlowState = {
   notifications: Notification[];
 };
 
-const INITIAL_STATE: MeetFlowState = {
-  members: INITIAL_MEMBERS,
-  meetings: INITIAL_MEETINGS,
-  notifications: [],
-};
-
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export function MeetFlowProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<MeetFlowState>(INITIAL_STATE);
+  const [state, setState] = useState<MeetFlowState>(getInitialState);
   const { members, meetings, notifications } = state;
 
   const updateMemberAvailability = useCallback(
@@ -155,6 +138,24 @@ export function MeetFlowProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const updateMemberDeepWork = useCallback(
+    (memberId: string, day: number, hour: number) => {
+      const s = slot(day, hour);
+      setState((prev) => ({
+        ...prev,
+        members: prev.members.map((m) => {
+          if (m.id !== memberId) return m;
+          const current = m.deepWorkSlots ?? [];
+          const next = current.includes(s)
+            ? current.filter((x) => x !== s)
+            : [...current, s];
+          return { ...m, deepWorkSlots: next };
+        }),
+      }));
+    },
+    []
+  );
+
   const addMember = useCallback((name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -169,6 +170,7 @@ export function MeetFlowProvider({ children }: { children: ReactNode }) {
             name: trimmed,
             color,
             availability: [],
+            deepWorkSlots: [],
           },
         ],
       };
@@ -176,7 +178,12 @@ export function MeetFlowProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addMeeting = useCallback(
-    (participantIds: string[], slotStr: string, title?: string) => {
+    (
+      participantIds: string[],
+      slotStr: string,
+      title?: string,
+      weight: MeetingWeight = "high"
+    ) => {
       setState((prev) => ({
         ...prev,
         meetings: [
@@ -187,9 +194,40 @@ export function MeetFlowProvider({ children }: { children: ReactNode }) {
             participantIds,
             slot: slotStr,
             createdAt: Date.now(),
+            weight,
           },
         ],
       }));
+    },
+    []
+  );
+
+  const rescheduleMeeting = useCallback(
+    (meetingId: string, newSlot: string) => {
+      setState((prev) => {
+        const meeting = prev.meetings.find((m) => m.id === meetingId);
+        if (!meeting) return prev;
+        const updated = { ...meeting, slot: newSlot };
+        const nextMeetings = prev.meetings.map((m) =>
+          m.id === meetingId ? updated : m
+        );
+        const payload = createRescheduleNotification(
+          updated,
+          meeting.slot,
+          newSlot
+        );
+        const newNotifs: Notification[] = meeting.participantIds.map(
+          (pid) => ({
+            ...payload,
+            id: `notif-${Date.now()}-${pid}-${Math.random().toString(36).slice(2)}`,
+          })
+        );
+        return {
+          ...prev,
+          meetings: nextMeetings,
+          notifications: [...newNotifs, ...prev.notifications],
+        };
+      });
     },
     []
   );
@@ -216,8 +254,10 @@ export function MeetFlowProvider({ children }: { children: ReactNode }) {
       meetings,
       notifications,
       updateMemberAvailability,
+      updateMemberDeepWork,
       addMember,
       addMeeting,
+      rescheduleMeeting,
       markNotificationRead,
       markAllNotificationsRead,
     }),
@@ -226,8 +266,10 @@ export function MeetFlowProvider({ children }: { children: ReactNode }) {
       meetings,
       notifications,
       updateMemberAvailability,
+      updateMemberDeepWork,
       addMember,
       addMeeting,
+      rescheduleMeeting,
       markNotificationRead,
       markAllNotificationsRead,
     ]
